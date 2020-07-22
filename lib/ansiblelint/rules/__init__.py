@@ -2,6 +2,7 @@
 import glob
 import importlib.util
 import logging
+import operator
 import os
 import re
 from collections import defaultdict
@@ -178,6 +179,11 @@ def load_plugins(directory: str) -> List[AnsibleLintRule]:
     return result
 
 
+def sorted_by_id(items):
+    """Return a sorted list by id of each item."""
+    return sorted(items, key=operator.attrgetter("id"))
+
+
 class RulesCollection(object):
 
     def __init__(self, rulesdirs=None) -> None:
@@ -189,7 +195,7 @@ class RulesCollection(object):
         for rulesdir in self.rulesdirs:
             _logger.debug("Loading rules from %s", rulesdir)
             self.extend(load_plugins(rulesdir))
-        self.rules = sorted(self.rules, key=lambda r: r.id)
+        self.rules = sorted_by_id(self.rules)
 
     def register(self, obj):
         self.rules.append(obj)
@@ -232,8 +238,7 @@ class RulesCollection(object):
 
     def __repr__(self) -> str:
         """Return a RulesCollection instance representation."""
-        return "\n".join([rule.verbose()
-                          for rule in sorted(self.rules, key=lambda x: x.id)])
+        return "\n".join([rule.verbose() for rule in sorted_by_id(self.rules)])
 
     def listtags(self) -> str:
         tags = defaultdict(list)
