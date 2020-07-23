@@ -21,13 +21,18 @@
 """Command line implementation."""
 
 import errno
+import glob
 import logging
+import os.path
 import pathlib
 import sys
 from typing import Any, Set
 
 from ansiblelint import cli, formatters
-from ansiblelint.constants import DEFAULT_RULESDIR
+from ansiblelint.constants import (
+    DEFAULT_RULESDIR,
+    DEFAULT_CUSTOM_RULESDIR
+)
 from ansiblelint.generate_docs import rules_as_rst
 from ansiblelint.rules import RulesCollection
 from ansiblelint.runner import Runner
@@ -56,6 +61,18 @@ def initialize_logger(level: int = 0) -> None:
     _logger.debug("Logging initialized to level %s", logging_level)
 
 
+def get_rules_dirs(rulesdir, use_default):
+    """Return a list of rules dirs."""
+    custom_rules_dirs = (
+        rdir for rdir in glob.glob(os.path.join(DEFAULT_CUSTOM_RULESDIR, '*'))
+        if os.path.isdir(rdir) and os.path.exists(os.path.join(rdir, "__init__.py"))
+    )
+    if use_default:
+        return rulesdir + sorted(custom_rules_dirs) + [DEFAULT_RULESDIR]
+
+    return rulesdir or sorted(custom_rules_dirs) + [DEFAULT_RULESDIR]
+
+
 def main() -> int:
     """Linter CLI entry point."""
     cwd = pathlib.Path.cwd()
@@ -77,10 +94,7 @@ def main() -> int:
 
     formatter = formatter_factory(cwd, options.display_relative_path)
 
-    if options.use_default_rules:
-        rulesdirs = options.rulesdir + [DEFAULT_RULESDIR]
-    else:
-        rulesdirs = options.rulesdir or [DEFAULT_RULESDIR]
+    rulesdirs = get_rules_dirs(options.rulesdir, options.use_default_rules)
     rules = RulesCollection(rulesdirs)
 
     if options.listrules:
