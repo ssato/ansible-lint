@@ -21,14 +21,16 @@
 # THE SOFTWARE.
 
 import logging
+import os.path
 import os
 import subprocess
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
 
-from ansiblelint import cli, utils
+from ansiblelint import cli, utils, constants
 from ansiblelint.__main__ import initialize_logger
 from ansiblelint.file_utils import normpath
 
@@ -258,3 +260,31 @@ def test_auto_detect_exclude(monkeypatch):
     monkeypatch.setattr(utils, 'get_yaml_files', mockreturn)
     result = utils.get_playbooks_and_roles(options)
     assert result == ['bar/playbook.yml']
+
+
+def test_get_rules_dirs():
+    default = [constants.DEFAULT_RULESDIR]
+    uruledirs = ["/tmp/rules/custom/99", "/tmp/rules/custom/10"]
+
+    assert utils.get_rules_dirs([], True) == default
+    assert utils.get_rules_dirs([], False) == default
+    assert utils.get_rules_dirs(uruledirs, True) == uruledirs + default
+    assert utils.get_rules_dirs(uruledirs, False) == uruledirs
+
+
+def test_get_rules_dirs_with_custom_rules(monkeypatch, tmpdir):
+    selfdir = os.path.dirname(__file__)
+    cruledir = tmpdir.mkdir("foo")
+
+    shutil.copy(os.path.join(selfdir, "CustomAlwaysRunRule.py"), cruledir)
+    open(os.path.join(cruledir, "__init__.py"), 'w').write('')
+
+    default = [str(tmpdir / "foo"), constants.DEFAULT_RULESDIR]
+    uruledirs = ["/tmp/rules/custom/bar"]
+
+    monkeypatch.setenv("ANSIBLE_LINT_CUSTOM_RULESDIR", str(tmpdir))
+
+    assert utils.get_rules_dirs([], True) == default
+    assert utils.get_rules_dirs([], False) == default
+    assert utils.get_rules_dirs(uruledirs, True) == uruledirs + default
+    assert utils.get_rules_dirs(uruledirs, False) == uruledirs

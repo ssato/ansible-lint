@@ -23,6 +23,7 @@ import contextlib
 import inspect
 import logging
 import os
+import pathlib
 import pprint
 import subprocess
 from argparse import Namespace
@@ -45,7 +46,11 @@ from ansible.template import Templar
 from yaml.composer import Composer
 from yaml.representer import RepresenterError
 
-from ansiblelint.constants import ANSIBLE_FAILURE_RC, FileType
+from ansiblelint.constants import (
+    ANSIBLE_FAILURE_RC,
+    DEFAULT_RULESDIR,
+    FileType
+)
 from ansiblelint.errors import MatchError
 from ansiblelint.file_utils import normpath
 
@@ -782,3 +787,21 @@ def expand_paths_vars(paths: List[str]) -> List[str]:
     """Expand the environment or ~ variables in a list."""
     paths = [expand_path_vars(p) for p in paths]
     return paths
+
+
+def get_rules_dirs(rulesdir, use_default) -> List[str]:
+    """Return a list of rules dirs."""
+    default_custom_rulesdir = os.environ.get(
+        "ANSIBLE_LINT_CUSTOM_RULESDIR",
+        os.path.join(DEFAULT_RULESDIR, "custom")
+    )
+
+    custom_rules_dirs = sorted(
+        str(rdir.resolve())
+        for rdir in pathlib.Path(default_custom_rulesdir).iterdir()
+        if rdir.is_dir() and (rdir / "__init__.py").exists()
+    )
+    if use_default:
+        return rulesdir + custom_rules_dirs + [DEFAULT_RULESDIR]
+
+    return rulesdir or custom_rules_dirs + [DEFAULT_RULESDIR]
