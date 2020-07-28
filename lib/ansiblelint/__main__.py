@@ -21,7 +21,9 @@
 """Command line implementation."""
 
 import errno
+import glob
 import logging
+import os.path
 import pathlib
 import sys
 from typing import Any, Set
