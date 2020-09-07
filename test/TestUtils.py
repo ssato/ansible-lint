@@ -144,6 +144,68 @@ def test_normpath_with_path_object(path):
     assert normpath(path) == "a"
 
 
+@pytest.mark.parametrize(('task', 'expected'), (
+    (dict(block=[dict(name="foo")]), True),
+    (dict(tasks=[dict(name="foo")]), False)
+))
+def test_is_block_task(task, expected):
+    """Verify is_block_task works as expected."""
+    assert utils.is_block_task(task) == expected
+
+
+_PING_TASK = dict(ping=None)
+_DEBUG_TASK = dict(debug=dict(msg="Debug!"))
+_TASK_TO_SKIP = dict(ping=None, tags=['skip_ansible_lint'])
+
+
+@pytest.mark.parametrize(('task', 'expected'), (
+    pytest.param(_PING_TASK, [_PING_TASK], id='a-task'),
+    pytest.param({'block': [_PING_TASK]}, [_PING_TASK], id='a-task-in-a-block'),
+    pytest.param({'block': [_PING_TASK], 'rescue': [_DEBUG_TASK]},
+                 [_PING_TASK, _DEBUG_TASK], id='tasks-in-a-block'),
+    pytest.param({'block': [{'block': [_PING_TASK]}]},
+                 [_PING_TASK], id='a-task-in-nested-blocks'),
+    pytest.param({'block': [{'block': [_PING_TASK], 'rescue': [_DEBUG_TASK]}]},
+                 [_PING_TASK, _DEBUG_TASK], id='tasks-in-nested-blocks'),
+))
+def test_get_tasks_in_blocks_itr(task, expected):
+    """Verify it can get tasks correctly for various task objects."""
+    assert list(utils.get_tasks_in_blocks_itr(task)) == expected
+
+
+@pytest.mark.parametrize(('task', 'expected'), (
+    pytest.param({}, False, id='empty-task'),
+    pytest.param(dict(tags=None), False, id='none-tags'),
+    pytest.param(dict(tags=[]), False, id='empty-tags'),
+    pytest.param(_TASK_TO_SKIP, True, id='skip-tag'),
+))
+def test_is_task_to_skip(task, expected):
+    """Verify is_task_to_skip works as expected."""
+    assert utils.is_task_to_skip(task) == expected
+
+
+@pytest.mark.parametrize(('tasks', 'tasks_type', 'expected'), (
+    pytest.param([], None, [], id='no-tasks'),
+    pytest.param([{'tasks': []}], None, [], id='empty-tasks'),
+    pytest.param([{'tasks': [_TASK_TO_SKIP]}], None, [], id='a-task-to-skip-in-tasks'),
+    pytest.param([{'tasks': [_PING_TASK]}], None, [_PING_TASK], id='a-task-in-tasks'),
+    pytest.param([{'tasks': [_PING_TASK, _DEBUG_TASK]}], None, [_PING_TASK, _DEBUG_TASK],
+                 id='tasks-in-tasks'),
+    pytest.param([{'block': [_PING_TASK]}], None, [_PING_TASK], id='a-task-in-a-block'),
+    pytest.param([{'block': [_PING_TASK], 'rescue': [_DEBUG_TASK]}], None,
+                 [_PING_TASK, _DEBUG_TASK], id='tasks-in-a-block'),
+    pytest.param([{'block': [{'block': [_PING_TASK]}]}], None, [_PING_TASK],
+                 id='a-task-in-nested-blocks'),
+    pytest.param([_PING_TASK], "tasks", [_PING_TASK], id='a-task-with-tasks_type'),
+    pytest.param([_PING_TASK, _DEBUG_TASK], "tasks", [_PING_TASK, _DEBUG_TASK],
+                 id='tasks-with-tasks_type'),
+))
+def test_find_action_tasks_itr(tasks, tasks_type, expected):
+    res = list(utils.find_action_tasks_itr(tasks, tasks_type=tasks_type,
+                                           annotate=False))  # To simplify the test.
+    assert res == expected
+
+
 def test_expand_path_vars(monkeypatch):
     """Ensure that tilde and env vars are expanded in paths."""
     test_path = '/test/path'
