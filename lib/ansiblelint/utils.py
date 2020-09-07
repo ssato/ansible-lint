@@ -21,6 +21,7 @@
 
 import contextlib
 import inspect
+import itertools
 import logging
 import os
 import pprint
@@ -29,7 +30,9 @@ from argparse import Namespace
 from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable, ItemsView, List, Optional, Tuple
+from typing import (
+    Callable, ItemsView, Iterable, Iterator, List, Optional, Tuple
+)
 
 import yaml
 from ansible import constants
@@ -567,6 +570,106 @@ def get_action_tasks(yaml, file):
     return [task for task in tasks if
             set(['include', 'include_tasks',
                 'import_playbook', 'import_tasks']).isdisjoint(task.keys())]
+
+
+_TSK_BLOCK_TYPES = ('block', 'rescue', 'always')
+_TSK_NORM_TYPES = ('tasks', 'handlers', 'pre_tasks', 'post_tasks')
+_TSK_TYPES = frozenset(itertools.chain(_TSK_BLOCK_TYPES, _TSK_NORM_TYPES))
+
+
+def is_block_task(task: dict) -> bool:
+    return _TSK_BLOCK_TYPES[0] in task
+
+
+def assert_children_tasks_exist(children_tasks, task_type: str) -> bool:
+    if not isinstance(children_tasks, list):
+        raise ValueError(
+            "Children of '{}' task must be a list of tasks.".format(task_type)
+        )
+
+
+def annotate_action_task(task: dict, task_type: str) -> dict:
+    """Add some information to action task."""
+    task['__ansible_action_type__'] = BLOCK_NAME_TO_ACTION_TYPE_MAP[task_type]
+    return task
+
+
+def get_tasks_in_blocks_itr(task: dict,
+                            block_types: Tuple[str] = _TSK_BLOCK_TYPES
+                            ) -> Iterator[dict]:
+    """Get tasks in (maybe nested) blocks."""
+    if not is_block_task(task):
+        yield task
+        return
+
+    for task_type in block_types:
+        if task_type in task:
+            children_tasks = task[task_type]
+            assert_children_tasks_exist(children_tasks, task_type)
+
+            for child_task in children_tasks:
+                for gc_task in get_tasks_in_blocks_itr(child_task):
+                    yield gc_task
+
+
+def get_action_task_with_type(task: dict, task_types: Tuple[str]
+                              ) -> Tuple[Optional[dict], Optional[str]]:
+    """Get action task if its type matches one of given task types."""
+    for ttype in task_types:
+        if ttype in task:
+            return (task, ttype)
+
+    return (None, None)
+
+
+def is_task_to_skip(task: dict) -> bool:
+    # An empty `tags` block causes `None` to be returned if
+    # the `or []` is not present - `task.get('tags', [])`
+    # does not suffice.
+    return 'skip_ansible_lint' in (task.get('tags') or [])
+
+
+def find_action_tasks_itr(tasks: Iterable[dict], tasks_type: Optional[str] = None,
+                          candidate_types: Iterable[str] = _TSK_NORM_TYPES
+                          ) -> Iterator[dict]:
+    """Get action tasks from given list of task definitions maybe inside nested blocks.
+
+    Action tasks have a key, one of 'tasks', 'handlers', 'pre_tasks' and 'post_tasks'.
+    """
+    for task in tasks:
+        if is_block_task(task):
+            tasks_in_blocks = get_tasks_in_blocks_itr(task)
+            for task_in_block in find_action_tasks_itr(tasks_in_blocks, tasks_type="tasks"):
+                yield task_in_block
+            continue
+
+        if tasks_type and not is_task_to_skip(task):
+            yield annotate_action_task(task, tasks_type)
+
+        (maybe_task, maybe_type) = get_action_task_with_type(task, candidate_types)
+        if maybe_task is None:  # This is not a task wanted.
+            continue
+
+        children_tasks = maybe_task[maybe_type]
+        assert_children_tasks_exist(children_tasks, maybe_type)
+
+        for child_task in find_action_tasks_itr(children_tasks, maybe_type):
+            yield child_task
+
+
+def get_action_tasks_itr(data: List[dict], file_: dict) -> Iterator[dict]:
+    if file_['type'] in ('tasks', 'handlers'):
+        for task in find_action_tasks_itr(data, tasks_type=file_['type']):
+            yield task
+    else:
+        for play in data:
+            tasks = ({key: val} for key, val in play.items() if key in _TSK_TYPES)
+            for task in find_action_tasks_itr(tasks):
+                yield task
+
+
+def get_normalized_tasks_v2(yaml, file_):
+    return [normalize_task(tsk, file_['path']) for tsk in get_action_tasks_itr(yaml, file_)]
 
 
 def get_normalized_tasks(yaml, file):
