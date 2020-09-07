@@ -1,0 +1,34 @@
+---
+- hosts: all
+
+  pre_tasks:
+    - { include: 'doesnotexist.yml' }
+    - name: pre_task debug message
+      debug:
+        msg: "pre_tasks!"
+
+  tasks:
+    - name: tasks-not-in-block
+      debug:
+        msg: This is a task not inside block.
+
+    - block:
+      - block:
+          - name: successful debug message
+            debug: msg='i execute normally'
+          - name: failure command
+            command: /bin/false
+            changed_when: False
+          - name: never reacehd debug message
+            debug: msg='i never execute, cause ERROR!'
+        rescue:
+          - name: exception debug message
+            debug: msg='I caught an error'
+          - name: another failure command
+            command: /bin/false
+            changed_when: False
+          - name: another missed debug message
+            debug: msg='I also never execute :-('
+        always:
+          - name: always reached debug message
+            debug: msg="this always executes"
