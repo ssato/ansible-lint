@@ -206,6 +206,34 @@ def test_find_action_tasks_itr(tasks, tasks_type, expected):
     assert res == expected
 
 
+@pytest.fixture(scope="function")
+def yml_data(request):
+    """Fixture to return data loaded from YAML file."""
+    filepath = Path(Path(__file__).parent / request.param).resolve()
+    yml_data = utils.parse_yaml_linenumbers(filepath.read_text(), str(filepath))
+
+    if not yml_data:
+        return None
+
+    return yml_data
+
+
+@pytest.mark.parametrize(('yml_data', 'file_', 'expected'), (
+    pytest.param('simpletask.yml',
+                 {'path': 'simpletask.yml', 'type': 'tasks'},
+                 [{'name': 'hello world', 'debug': 'msg="Hello!"',
+                   'skipped_rules': [], '__ansible_action_type__': 'task'}],
+                 id='a-simple-task'),
+    ), indirect=('yml_data', )
+)
+def test_get_action_tasks_itr(yml_data, file_, expected):
+    res = list(utils.get_action_tasks_itr(yml_data, file_))
+    assert bool(res)
+    for idx, tsk in enumerate(expected):
+        for key, value in tsk.items():
+            assert res[idx].get(key, None) == value
+
+
 def test_expand_path_vars(monkeypatch):
     """Ensure that tilde and env vars are expanded in paths."""
     test_path = '/test/path'
